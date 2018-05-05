@@ -71,6 +71,7 @@ server <- function(input, output) {
   
 }
 
+# the indices of the selected rows are available through input$tableId_rows_selected
 # Run the application 
 shinyApp(ui = ui, server = server)
 
