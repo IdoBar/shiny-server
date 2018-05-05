@@ -16,45 +16,52 @@ ui <- fluidPage(
    
    # Application title
    titlePanel("Trinotate Transcriptome Database Query App" ),
-   
+   tags$head(tags$style(
+     type="text/css",
+     "#image img {max-width: 100%; width: 100%; height: auto}"
+   )),
    # Sidebar with a search bar 
    sidebarLayout(
-        sidebarPanel(width=2,
-          img(src = "1200px-Pinctada_margaritifera_MHNT.CON.2002.893.jpg", height = 151, width = 200),
-          br(),
-          br(),
-          textInput("keyword", h3("Keyword search"), 
-                    value = "...")),
-      
+     
+      sidebarPanel(imageOutput("image"), width=3),
+        #   img(src = "1200px-Pinctada_margaritifera_MHNT.CON.2002.893.jpg", height = 151, width = 200),
+        #   br(),
+        #   br(),
+        #   textInput("keyword", h3("Keyword search"), 
+        #             value = "...")),
+        
       # Show a results table of transcripts matching the search
       mainPanel(
         
-        h2("Pearl Oyster (", em("P. maxima"), ") Mantle transcriptome database"), 
+        h2("Pearl Oyster (", em("Pinctada maxima"), ") mantle transcriptome database"), 
         p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing."),
         p("The resulting data was ", em("de novo"), " assembled into a reference transcriptome, annotated and stored in a ",
           a("Trinotate", href="http://trinotate.github.io/") ," database"),
-        p("Use the search bar on the left panel to retrieve transcripts whose BLAST annotation matches the keyword. The the search boxes in the table can then be used to further apply filters. The table can then be exported using the ", strong("Download"), "button."),
+        p("Use the search bar to retrieve transcripts matching the keyword (at any field). The table can then be exported using the ", strong("Download"), "button below."),
         br(), br(),
-        div(DT::dataTableOutput("output_table"), style = "font-size:75%")
+        div(DT::dataTableOutput("output_table"), style = "font-size:75%"),
+        br(),
+        div(downloadButton("download_fasta", 
+                           label = "Download sequences of selected transcripts (FASTA)"),
+            actionButton("clear_selection", label = "Clear selection"),
+            actionButton("select_all", label = "Select all"))
       )
    )
 )
 
 # Define server logic required to show a results table of transcripts matching the search
-server <- function(input, output) {
-  con <- DBI::dbConnect(RSQLite::SQLite(), "/srv/shiny-server/bioinfo03/data/Paspaley/Mantle/Trinity_assembly/Annotation/Trinotate_db/P_maxima_mantle_Trinotate_local.sqlite")
-  mantle_annot <- dplyr::tbl(src_dbi(con), "ORF_annotation") %>% 
-    dplyr::collect(n=Inf)
-  # mantle_db <- src_dbi(con)
-  # 
-  # retrieve blast and pfam results (remove P_maxima_Mantle... to match the accessions in the databases)
+server <- function(input, output, session) {
+  # Render image
+  output$image <- renderImage({
+    list(
+      src = "/srv/shiny-server/shinotate/www/1200px-Pinctada_margaritifera_MHNT.CON.2002.893.jpg",
+      # # contentType = "image/jpg", 
+      height = 120,
+      alt = "Pinctada maxima"
+    )}, deleteFile = FALSE)
   
-  # mantle_annot <- tbl(mantle_db, sql("SELECT TrinityId, Description, BitScore, Pfam.HMMERDomains, Pfam.DomainDescriptions, H.GO_ids, H.GO_names, K.KO_ID AS KEGG_id, K.KO_name AS KEGG_name  FROM Blast_tax B LEFT OUTER JOIN (SELECT QueryProtID,GROUP_CONCAT(HMMERDomain, ';')  HMMERDomains ,GROUP_CONCAT(HMMERTDomainDescription, ';')  DomainDescriptions FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID) Pfam ON B.TrinityId=Pfam.QueryProtID LEFT OUTER JOIN (SELECT * FROM HMMERDbase JOIN (SELECT pfam_acc, group_concat(name) AS GO_names, group_concat(go_id) AS GO_IDs FROM (SELECT * FROM pfam2go JOIN go ON pfam2go.go_id=go.id) GROUP BY pfam_acc) G ON substr(HMMERDbase.pfam_id,1,7)=G.pfam_acc WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore) ) H ON B.TrinityId=H.QueryProtID LEFT OUTER JOIN (SELECT * FROM ORF_KO WHERE KO_id != 'None') K ON B.TrinityId=K.orf_id GROUP BY TrinityId HAVING MAX(BitScore)")) %>% 
-  #   collect(n=Inf) # %>% dplyr::filter(Description %likeci% "Leucine") 
-   
-  # 
-  res <- reactive({mantle_annot %>% dplyr::filter(grepl(input$keyword, Description, ignore.case = TRUE))})
-  output$output_table <- DT::renderDataTable(res(),  rownames= F, # filter = "top",
+  # res <- reactive({mantle_annot %>% dplyr::filter(grepl(input$keyword, Description, ignore.case = TRUE))})
+  output$output_table <- DT::renderDataTable(mantle_annot,  rownames= F, # filter = "top",
                                extensions = c("Buttons", "Scroller"),
                                options = list(
                                  dom = 'Bfrtip',
@@ -68,6 +75,38 @@ server <- function(input, output) {
                                       scroller = TRUE,  lengthMenu=20
                                  
                                  ))
+  # set the table as proxy to be able to update it
+  proxy = dataTableProxy('output_table')
+  # Identify button click 
+  observeEvent(input$clear_selection, {
+    proxy %>% selectRows(list())
+  })
+  
+  observeEvent(input$select_all, {
+    proxy %>% selectRows(as.numeric(input$output_table_rows_all))
+  })
+  
+  output$download_fasta <- downloadHandler(
+    filename = "selected_sequences.fasta",
+    content = function(file) {
+      # input_output_table_rows_selected = 1:10
+      ids <- mantle_annot$TrinityId[input$output_table_rows_selected]
+      tx_ids <- unique(sub("\\|m\\..+", "", ids))
+      cds_ids <- ids[grepl("\\|m\\..+", ids)]
+      # extract transcript sequences
+      tx <- dplyr::tbl(src_dbi(con), "Transcript") %>% dplyr::filter(transcript_id %in% tx_ids) %>% 
+        dplyr::select(transcript_id, sequence) %>% dplyr::collect(n=Inf)
+      # extract just the coding sequences
+      cds <- dplyr::tbl(src_dbi(con), "ORF") %>% dplyr::filter(orf_id %in% cds_ids) %>%  
+        dplyr::collect(n=Inf) %>% dplyr::mutate(cds=substr(tx$sequence[match(transcript_id, tx$transcript_id)], lend, rend), cds_2=ifelse(strand=="+", cds, chartr("ATGC","TACG",reverse(cds)))) %>% 
+        dplyr::select(transcript_id=orf_id, sequence=cds_2) 
+      # combine both whole transcripts and cds
+      seqs_out <- tx %>% dplyr::filter(transcript_id  %in% ids[!grepl("\\|m\\..+", ids)]) %>% 
+        dplyr::bind_rows(cds)
+      # file="test.fasta"
+      seqinr::write.fasta(as.list(seqs_out$sequence), names = seqs_out$transcript_id, file.out = file)
+    }
+  )
   
 }
 
