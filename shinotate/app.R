@@ -8,46 +8,58 @@
 #
 devtools::source_gist("7f63547158ecdbacf31b54a58af0d1cc", filename = "util.R")
 install.deps("pacman")
-CRAN_packages <- c("shiny",  "tidyverse", "sqldf", "dbplyr", "DT", "RSQLite")
+CRAN_packages <- c("shiny",  "tidyverse", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard")
 pacman::p_load(char=CRAN_packages)
 
 # Define UI for application that draws a histogram
-ui <- fluidPage(
-   
-   # Application title
-   titlePanel("Trinotate Transcriptome Database Query App" ),
-   tags$head(tags$style(
-     type="text/css",
-     "#image img {max-width: 100%; width: 100%; height: auto}"
-   )),
-   # Sidebar with a search bar 
-   sidebarLayout(
-     
-      sidebarPanel(imageOutput("image"), width=3),
-        #   img(src = "1200px-Pinctada_margaritifera_MHNT.CON.2002.893.jpg", height = 151, width = 200),
-        #   br(),
-        #   br(),
-        #   textInput("keyword", h3("Keyword search"), 
-        #             value = "...")),
-        
-      # Show a results table of transcripts matching the search
-      mainPanel(
-        
-        h2("Pearl Oyster (", em("Pinctada maxima"), ") mantle transcriptome database"), 
-        p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing."),
-        p("The resulting data was ", em("de novo"), " assembled into a reference transcriptome, annotated and stored in a ",
-          a("Trinotate", href="http://trinotate.github.io/") ," database"),
-        p("Use the search bar to retrieve transcripts matching the keyword (at any field). The table can then be exported using the ", strong("Download"), "button below."),
-        br(), br(),
-        div(DT::dataTableOutput("output_table"), style = "font-size:75%"),
-        br(),
-        div(downloadButton("download_fasta", 
-                           label = "Download sequences of selected transcripts (FASTA)"),
-            actionButton("clear_selection", label = "Clear selection"),
-            actionButton("select_all", label = "Select all"))
+ui <- dashboardPage(skin = "purple",
+  dashboardHeader(title = "Shinotate - Transcriptome annotation app", titleWidth = 450),
+
+  dashboardSidebar(sidebarMenu(
+                     menuItem("Annotation", tabName = "annotation",
+                              icon = icon("education", lib="glyphicon")),
+                     menuItem("Expression", tabName = "de", icon = icon("bar-chart-o"))),
+                   imageOutput("image")
+                   ),
+  dashboardBody(
+    tags$head(tags$style(
+      type="text/css",
+      "#image img {max-width: 100%; width: 90%; height: auto}"
+    )),
+    tabItems(
+      # First tab content
+      tabItem(tabName = "annotation",
+    fluidRow(
+      box(
+    h2("Pearl Oyster (", em("Pinctada maxima"), ") mantle transcriptome database"), 
+                p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing."),
+                p("The resulting data was ", em("de novo"), " assembled into a reference transcriptome, annotated and stored in a ",
+                  a("Trinotate", href="http://trinotate.github.io/") ," database"),
+                p("Use the search bar on the right of the table to retrieve transcripts matching the keyword (at any field). The table can then be copied/printed/exported using the buttons on the left. Finally, selected transcripts can be exported in FASTA format (", strong("Selection and Download"), " buttons below)."), width=12),
+                br(), br(),
+    
+                box(div(DT::dataTableOutput("output_table"), style = "font-size:75%"),
+                br(),
+                div(downloadButton("download_fasta", 
+                                   label = "Download sequences of selected transcripts (FASTA)"),
+                    actionButton("clear_selection", label = "Clear selection"),
+                    actionButton("select_all", label = "Select all")) , width=12)
+        )
       )
-   )
+    ),
+    
+    # Second tab content
+    tabItem(tabName = "de",
+            h2("Differential expression tab content")
+    )
+  )
 )
+    
+
+  
+      
+   
+# )
 
 # Define server logic required to show a results table of transcripts matching the search
 server <- function(input, output, session) {
