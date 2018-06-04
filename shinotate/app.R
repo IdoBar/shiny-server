@@ -6,10 +6,21 @@
 #
 #    http://shiny.rstudio.com/
 #
-devtools::source_gist("7f63547158ecdbacf31b54a58af0d1cc", filename = "util.R")
-install.deps("pacman")
-CRAN_packages <- c("shiny",  "tidyverse", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard")
+
+# devtools::source_gist('7f63547158ecdbacf31b54a58af0d1cc', filename = 'util.R')
+# load needed packages. Note that for the shiny app, these need to be preinstalled with root priviliges (sudo su - -c "R -e \"install.packages('pacman', repos='http://cran.rstudio.com/')\"")
+# install.deps("pacman") 
+# Install and load bioconductor packages
+# bioc_packages <- c("Biostrings")
+# install.deps(bioc_packages, repo="bioc")
+CRAN_packages <- c("shiny", "tidyverse", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", "Biostrings")
 pacman::p_load(char=CRAN_packages)
+
+
+
+con <- DBI::dbConnect(RSQLite::SQLite(), "/mnt/Shinotate_data/Trinotate_dbs/P_maxima_mantle_Trinotate_local.sqlite") # /srv/shiny-server/bioinfo03/data/Paspaley/Annotation_dbs
+mantle_annot <- dplyr::tbl(dbplyr::src_dbi(con), "ORF_annotation") %>% 
+  dplyr::collect(n=Inf)
 
 # Define UI for application that draws a histogram
 ui <- dashboardPage(skin = "purple",
@@ -17,7 +28,7 @@ ui <- dashboardPage(skin = "purple",
 
   dashboardSidebar(sidebarMenu(
                      menuItem("Annotation", tabName = "annotation",
-                              icon = icon("education", lib="glyphicon")),
+                              icon = icon("list-alt", lib="glyphicon")),
                      menuItem("Expression", tabName = "de", icon = icon("bar-chart-o"))),
                    imageOutput("image")
                    ),
@@ -35,15 +46,18 @@ ui <- dashboardPage(skin = "purple",
                 p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing."),
                 p("The resulting data was ", em("de novo"), " assembled into a reference transcriptome, annotated and stored in a ",
                   a("Trinotate", href="http://trinotate.github.io/") ," database"),
-                p("Use the search bar on the right of the table to retrieve transcripts matching the keyword (at any field). The table can then be copied/printed/exported using the buttons on the left. Finally, selected transcripts can be exported in FASTA format (", strong("Selection and Download"), " buttons below)."), width=12),
+                p("Use the search bar on the right of the table to retrieve transcripts matching the keyword (at any field). The table can then be copied/printed/exported using the buttons on the left."),
+            p("Finally, selected transcripts can be exported in FASTA format (use the ", strong("Selection and Download"), " buttons below the table)."), width=12),
                 br(), br(),
     
-                box(div(DT::dataTableOutput("output_table"), style = "font-size:75%"),
+                box(div(DT::dataTableOutput("output_table")),
                 br(),
                 div(downloadButton("download_fasta", 
-                                   label = "Download sequences of selected transcripts (FASTA)"),
+                        label = "Download sequences of selected transcripts (FASTA)"),
+                    # div(class="horizontalgap", style="width:5px"),# hr(),
                     actionButton("clear_selection", label = "Clear selection"),
-                    actionButton("select_all", label = "Select all")) , width=12)
+                    actionButton("select_all", label = "Select all")) , width=11)
+                # box(textOutput("selected_var"))
         )
       )
     ),
@@ -74,17 +88,23 @@ server <- function(input, output, session) {
   
   # res <- reactive({mantle_annot %>% dplyr::filter(grepl(input$keyword, Description, ignore.case = TRUE))})
   output$output_table <- DT::renderDataTable(mantle_annot,  rownames= F, # filter = "top",
-                               extensions = c("Buttons", "Scroller"),
+                               extensions = c("Buttons", "Scroller",'FixedColumns',"FixedHeader"),
                                options = list(
                                  dom = 'Bfrtip',
-                                 autoWidth=FALSE,
+                                 # autoWidth = TRUE,
+                                 columnDefs = list(list(width = '150px', targets = c(2, 5, 7))),
+                                 # pageLength = 15,
                                  buttons =list('copy','print', 
                                                list( extend = 'collection',
                                        buttons = c('csv', 'excel', 'pdf'),
                                        text = 'Download'),
-                                       list(extend = 'colvis', columns = 2:8)), 
-                                 deferRender = TRUE,scrollY = 200,
-                                      scroller = TRUE,  lengthMenu=20
+                                       list(extend = 'colvis', columns = 1:8)),
+                                 scrollY = 350,# deferRender = TRUE,
+                                 scroller = TRUE,
+                                 scrollX = TRUE,
+                                 # paging=FALSE,
+                                 fixedHeader=TRUE#,
+                                 # fixedColumns = list(leftColumns = 1, rightColumns = 0)#,  lengthMenu=20
                                  
                                  ))
   # set the table as proxy to be able to update it
@@ -95,14 +115,21 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$select_all, {
+    print(as.numeric(input$output_table_rows_all))
     proxy %>% selectRows(as.numeric(input$output_table_rows_all))
   })
+  
+  # output$selected_var <- renderText({ 
+  #   paste("Your filtered table contains the following rows: ", 
+  #         paste(as.numeric(input$output_table_rows_all), collapse = ","))
+  # })
   
   output$download_fasta <- downloadHandler(
     filename = "selected_sequences.fasta",
     content = function(file) {
       # input_output_table_rows_selected = 1:10
       ids <- mantle_annot$TrinityId[input$output_table_rows_selected]
+      # ids <- mantle_annot$TrinityId[input_output_table_rows_selected]
       tx_ids <- unique(sub("\\|m\\..+", "", ids))
       cds_ids <- ids[grepl("\\|m\\..+", ids)]
       # extract transcript sequences
@@ -116,7 +143,13 @@ server <- function(input, output, session) {
       seqs_out <- tx %>% dplyr::filter(transcript_id  %in% ids[!grepl("\\|m\\..+", ids)]) %>% 
         dplyr::bind_rows(cds)
       # file="test.fasta"
-      seqinr::write.fasta(as.list(seqs_out$sequence), names = seqs_out$transcript_id, file.out = file)
+      # tempFile <- file.path(tempdir(), "selected_sequences.fasta")
+      
+      seqinr::write.fasta(as.list(seqs_out$sequence), names = seqs_out$transcript_id, 
+                          file.out = file)
+      # file.copy(tempFile, file)
+      # file.copy(filename(),file )
+      
     }
   )
   
