@@ -13,24 +13,31 @@
 # Install and load bioconductor packages
 # bioc_packages <- c("Biostrings")
 # install.deps(bioc_packages, repo="bioc")
-CRAN_packages <- c("shiny", "tidyverse", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", "Biostrings")
+CRAN_packages <- c("shiny", "dplyr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", "Biostrings") # tidyverse
 pacman::p_load(char=CRAN_packages)
 
 
 
 con <- DBI::dbConnect(RSQLite::SQLite(), "/mnt/Shinotate_data/Trinotate_dbs/P_maxima_mantle_Trinotate_local.sqlite") # /srv/shiny-server/bioinfo03/data/Paspaley/Annotation_dbs
-mantle_annot <- dplyr::tbl(dbplyr::src_dbi(con), "ORF_annotation") %>% 
-  dplyr::collect(n=Inf)
+def_query <- "select * from blast_annotation" # ORF_annotation / BlastDbase / blast_annotation
+
 
 # Define UI for application that draws a histogram
 ui <- dashboardPage(skin = "purple",
   dashboardHeader(title = "Shinotate - Transcriptome annotation app", titleWidth = 450),
 
-  dashboardSidebar(sidebarMenu(
-                     menuItem("Annotation", tabName = "annotation",
+  dashboardSidebar(sidebarMenu(id = "sidebar",
+                     menuItem("Transcript Annotation", tabName = "annotation",
                               icon = icon("list-alt", lib="glyphicon")),
-                     menuItem("Expression", tabName = "de", icon = icon("bar-chart-o"))),
-                   imageOutput("image")
+                     menuItem("Transcript Expression", tabName = "de", icon = icon("bar-chart-o")),
+                     menuItem("Settings", tabName = "settings",
+                              icon = icon("gear")),
+                     br(),
+                     imageOutput("image"),
+                     menuItem("Shinotate code and wiki", icon = icon("file-code-o"), 
+                              href = "https://github.com/IdoBar/shiny-server/wiki")#, 
+                              #badgeLabel = "info", badgeColor = "green")
+                    )
                    ),
   dashboardBody(
     tags$head(tags$style(
@@ -47,7 +54,7 @@ ui <- dashboardPage(skin = "purple",
                 p("The resulting data was ", em("de novo"), " assembled into a reference transcriptome, annotated and stored in a ",
                   a("Trinotate", href="http://trinotate.github.io/") ," database"),
                 p("Use the search bar on the right of the table to retrieve transcripts matching the keyword (at any field). The table can then be copied/printed/exported using the buttons on the left."),
-            p("Finally, selected transcripts can be exported in FASTA format (use the ", strong("Selection and Download"), " buttons below the table)."), width=12),
+            p("Finally, selected transcripts can be exported in FASTA format (use the ", strong("Selection and Download"), " buttons below the table)."), width=11),
                 br(), br(),
     
                 box(div(DT::dataTableOutput("output_table")),
@@ -60,11 +67,16 @@ ui <- dashboardPage(skin = "purple",
                 # box(textOutput("selected_var"))
         )
       )
-    ),
+    ,
     
     # Second tab content
     tabItem(tabName = "de",
-            h2("Differential expression tab content")
+            h2("Differential expression tab content")),
+    tabItem(tabName = "settings",
+            h2("Setup Shinotate"),
+            box(div( textInput("query", "Annotation query", def_query), 
+                     actionButton("update_query", "Update table")))
+            )
     )
   )
 )
@@ -87,7 +99,18 @@ server <- function(input, output, session) {
     )}, deleteFile = FALSE)
   
   # res <- reactive({mantle_annot %>% dplyr::filter(grepl(input$keyword, Description, ignore.case = TRUE))})
-  output$output_table <- DT::renderDataTable(mantle_annot,  rownames= F, # filter = "top",
+  num_results <- 1
+  annot_query <- def_query
+  # annot_query <- eventReactive(input$update_query, {
+  #   input$query
+  # })
+  annot_table <- dplyr::tbl(dbplyr::src_dbi(con), dplyr::sql(annot_query)) %>% 
+    dplyr::collect(n=Inf) # %>% dplyr::group_by(TrinityId) %>%
+    # dplyr::arrange(dplyr::desc(BitScore)) %>%
+    # dplyr::slice(1:num_results)
+  # dplyr::filter(between(row_number(), 1, num_results)) %>%
+  
+  output$output_table <- DT::renderDataTable(annot_table,  rownames= F, # filter = "top",
                                extensions = c("Buttons", "Scroller",'FixedColumns',"FixedHeader"),
                                options = list(
                                  dom = 'Bfrtip',
@@ -128,7 +151,7 @@ server <- function(input, output, session) {
     filename = "selected_sequences.fasta",
     content = function(file) {
       # input_output_table_rows_selected = 1:10
-      ids <- mantle_annot$TrinityId[input$output_table_rows_selected]
+      ids <- annot_table$TrinityID[input$output_table_rows_selected]
       # ids <- mantle_annot$TrinityId[input_output_table_rows_selected]
       tx_ids <- unique(sub("\\|m\\..+", "", ids))
       cds_ids <- ids[grepl("\\|m\\..+", ids)]
