@@ -10,9 +10,7 @@
 # devtools::source_gist('7f63547158ecdbacf31b54a58af0d1cc', filename = 'util.R')
 # load needed packages. Note that for the shiny app, these need to be preinstalled with root priviliges (sudo su - -c "R -e \"install.packages('pacman', repos='http://cran.rstudio.com/')\"")
 # install.deps("pacman") 
-# Install and load bioconductor packages
-# bioc_packages <- c("Biostrings")
-# install.deps(bioc_packages, repo="bioc")
+
 CRAN_packages <- c("shiny", "dplyr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard",                              "Biostrings", "R.utils") # tidyverse
 pacman::p_load(char=CRAN_packages)
 
@@ -21,10 +19,16 @@ pacman::p_load(char=CRAN_packages)
 db_files <- list.files("/mnt/Shinotate_data/Trinotate_dbs", pattern = "[tT]rinotate.*\\.sqlite", 
                        full.names = TRUE)
 dbs_list <- setNames(as.list(db_files), basename(db_files))
-
-def_query <- "select * from blast_annotation" # ORF_annotation / BlastDbase / blast_annotation
+##### Specify default parameters #####
+def_query <- "SELECT * FROM blast_annotation" # ORF_annotation / BlastDbase / blast_annotation
+def_db <- "P_maxima_mantle_Trinotate_local.sqlite"
+def_con <- DBI::dbConnect(RSQLite::SQLite(), dbs_list[[def_db]]) # /srv/shiny-server/bioinfo03/data/Paspaley/Annotation_dbs
 num_results <- 1
 annot_query <- def_query
+get_annotation <- function(db_src, query){
+  dplyr::tbl(db_src, dplyr::sql(query)) %>% 
+    dplyr::collect(n=Inf)
+}
 
 # Define UI for application that draws a histogram
 ui <- dashboardPage(skin = "purple",
@@ -37,6 +41,7 @@ ui <- dashboardPage(skin = "purple",
                      
                      br(),
                      imageOutput("image"),
+                     actionButton("restore_defaults", "Restore defaults"),
                      menuItem("Trinotate db setup", tabName = "settings",
                               icon = icon("gear"), badgeLabel = "advanced", badgeColor = "green"),
                      menuItem("Shinotate code and wiki", icon = icon("file-code-o"), 
@@ -78,7 +83,7 @@ ui <- dashboardPage(skin = "purple",
     tabItem(tabName = "de",
             h2("Differential expression tab content")),
     tabItem(tabName = "settings",
-            uiOutput('resetable_input'),
+            uiOutput('resetable_input')
             
             # h2("Trinotate db setup"),
             # box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
@@ -87,9 +92,9 @@ ui <- dashboardPage(skin = "purple",
             #     div(textOutput("db_info")), width = 10),
             #   box(div( textInput("query", "Annotation query", def_query),
             #          actionButton("update_query", "Update table"))),
-            tags$hr(),
-            br(),
-            box(div(actionButton("restore_defaults", "Restore defaults")), width = 3)
+            # tags$hr(),
+            # br(),
+            # box(div(actionButton("restore_defaults", "Restore defaults")), width = 2)
             )
     )
   )
@@ -115,17 +120,18 @@ server <- function(input, output, session) {
   # res <- reactive({mantle_annot %>% dplyr::filter(grepl(input$keyword, Description, ignore.case = TRUE))})
   output$resetable_input <- renderUI({
     times <- input$restore_defaults
-        div(id=letters[(times %% length(letters)) + 1],
-            h2("Trinotate db setup"),
-        box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
-                            selected = dbs_list$P_maxima_mantle_Trinotate_local.sqlite)),
-            h4("Trinotate db information:"),
-            div(verbatimTextOutput("db_info")), width = 8),
-        box(div( textInput("query", "Annotation query", def_query),
-                 actionButton("update_query", "Update table")), width = 8))
-  })
+    div(id=letters[(times %% length(letters)) + 1],
+        h2("Trinotate db setup"),
+    box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
+                        selected = dbs_list[[def_db]])),
+        h4("Trinotate db information:"),
+        div(verbatimTextOutput("db_info")), width = 10),
+    box(div( textInput("query", "Annotation query", def_query),
+             actionButton("update_query", "Update table")), width = 10))
+    
+  }) 
   
-  con <- DBI::dbConnect(RSQLite::SQLite(), "/mnt/Shinotate_data/Trinotate_dbs/P_maxima_mantle_Trinotate_local.sqlite") # /srv/shiny-server/bioinfo03/data/Paspaley/Annotation_dbs
+  
   
   # annot_query <- eventReactive(input$update_query, {
   #   input$query
@@ -144,23 +150,21 @@ server <- function(input, output, session) {
     )
   # con_values <- reactiveValues(con = DBI::dbConnect(RSQLite::SQLite(), input$db))
   values <- reactiveValues(annot_table = {
-    dplyr::tbl(dbplyr::src_dbi(con), dplyr::sql(annot_query)) %>% 
-      dplyr::collect(n=Inf) # %>% dplyr::group_by(1) %>%
+    get_annotation(dbplyr::src_dbi(def_con), def_query) # %>% dplyr::group_by(1) %>%
       # dplyr::arrange(dplyr::desc(BitScore)) %>%
       # dplyr::slice(1:num_results)
   } )  # %>% dplyr::group_by(TrinityId) %>%
     # dplyr::arrange(dplyr::desc(BitScore)) %>%
     # dplyr::slice(1:num_results)
   # dplyr::filter(between(row_number(), 1, num_results)) %>%
-  observeEvent(input$update_query, {
-    values$annot_table <- dplyr::tbl(dbplyr::src_dbi(con), dplyr::sql(input$query)) %>% 
-      dplyr::collect(n=Inf)
-    
+  observeEvent(c(input$update_query), { # , input$restore_defaults
+    values$annot_table <- get_annotation(C1(), input$query)
+    updateTabItems(session, "sidebar", "annotation")
   })
   # return settings to default
-  D2 <- eventReactive(input$goButton1,{
-    D1()[D1()$Language %in% input$selectinputid,]
-  })
+  # D2 <- eventReactive(input$goButton1,{
+  #   D1()[D1()$Language %in% input$selectinputid,]
+  # })
   
   output$output_table <- DT::renderDataTable(values$annot_table,  rownames= F, # filter = "top",
                                extensions = c("Buttons", "Scroller",'FixedColumns',"FixedHeader"),
