@@ -11,7 +11,8 @@
 # load needed packages. Note that for the shiny app, these need to be preinstalled with root priviliges (sudo su - -c "R -e \"install.packages('pacman', repos='http://cran.rstudio.com/')\"")
 # install.deps("pacman") 
 
-CRAN_packages <- c("shiny", "dplyr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard",                              "Biostrings", "R.utils") # tidyverse
+CRAN_packages <- c("shiny", "dplyr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", 
+                   "shinyWidgets", "Biostrings", "R.utils") # tidyverse
 pacman::p_load(char=CRAN_packages)
 
 
@@ -41,9 +42,13 @@ ui <- dashboardPage(skin = "purple",
                      
                      br(),
                      imageOutput("image"),
-                     actionButton("restore_defaults", "Restore defaults"),
-                     menuItem("Trinotate db setup", tabName = "settings",
-                              icon = icon("gear"), badgeLabel = "advanced", badgeColor = "green"),
+                     dropdownButton(
+                       uiOutput('resetable_input'), size="sm",
+                       circle = FALSE, status = "success", icon = icon("gear"), width = "600px",
+                       tooltip = tooltipOptions(title = "Trinotate db settings")  ),
+                     
+                     # menuItem("Trinotate db setup", tabName = "settings",
+                     #          icon = icon("gear"), badgeLabel = "advanced", badgeColor = "green"),
                      menuItem("Shinotate code and wiki", icon = icon("file-code-o"), 
                               href = "https://github.com/IdoBar/shiny-server/wiki")#, 
                               #badgeLabel = "info", badgeColor = "green")
@@ -55,35 +60,37 @@ ui <- dashboardPage(skin = "purple",
       "#image img {max-width: 100%; width: 90%; height: auto}"
     )),
     tabItems(
-      # First tab content
+      # Annotation tab content
       tabItem(tabName = "annotation",
-    fluidRow(
-      box(
-    h2("Pearl Oyster (", em("Pinctada maxima"), ") mantle transcriptome database"), 
-                p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing."),
-                p("The resulting data was ", em("de novo"), " assembled into a reference transcriptome, annotated and stored in a ",
-                  a("Trinotate", href="http://trinotate.github.io/") ," database"),
-                p("Use the search bar on the right of the table to retrieve transcripts matching the keyword (at any field). The table can then be copied/printed/exported using the buttons on the left."),
-            p("Finally, selected transcripts can be exported in FASTA format (use the ", strong("Selection and Download"), " buttons below the table)."), width=11),
-                br(), br(),
-    
-                box(div(DT::dataTableOutput("output_table")),
-                br(),
-                div(downloadButton("download_fasta", 
-                        label = "Download sequences of selected transcripts (FASTA)"),
-                    # div(class="horizontalgap", style="width:5px"),# hr(),
-                    actionButton("clear_selection", label = "Clear selection"),
-                    actionButton("select_all", label = "Select all")) , width=11)
-                # box(textOutput("selected_var"))
-        )
-      )
-    ,
-    
-    # Second tab content
+        fluidRow(
+          box(
+            h2("Pearl Oyster (", em("Pinctada maxima"), ") mantle transcriptome database"), 
+            p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing."),
+            p("The resulting data was ", em("de novo"), 
+              " assembled into a reference transcriptome, annotated and stored in a ",
+              a("Trinotate", href="http://trinotate.github.io/") ," database"),
+              p("Use the search bar on the right of the table to retrieve transcripts matching the keyword (at any field). The table can then be copied/printed/exported using the buttons on the left."),
+              p("Finally, selected transcripts can be exported in FASTA format (use the ", 
+                strong("Selection and Download"), " buttons below the table)."), width=11
+             ),
+          br(), br(),
+          box(
+            div(DT::dataTableOutput("output_table")),
+            br(),
+            div(
+            downloadButton("download_fasta", 
+                  label = "Download sequences of selected transcripts (FASTA)"),
+              actionButton("clear_selection", label = "Clear selection"),
+              actionButton("select_all", label = "Select all")# ,
+              ) , width=11)
+            )
+          ),
+    # DE tab content
     tabItem(tabName = "de",
             h2("Differential expression tab content")),
-    tabItem(tabName = "settings",
-            uiOutput('resetable_input')
+    # Trinotate setup tab content (currently settings are in a dropdownButton in the sidebar)
+    tabItem(tabName = "settings") #,
+            # uiOutput('resetable_input')
             
             # h2("Trinotate db setup"),
             # box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
@@ -95,7 +102,7 @@ ui <- dashboardPage(skin = "purple",
             # tags$hr(),
             # br(),
             # box(div(actionButton("restore_defaults", "Restore defaults")), width = 2)
-            )
+            # )
     )
   )
 )
@@ -117,55 +124,53 @@ server <- function(input, output, session) {
       alt = "Pinctada maxima"
     )}, deleteFile = FALSE)
   
-  # res <- reactive({mantle_annot %>% dplyr::filter(grepl(input$keyword, Description, ignore.case = TRUE))})
+  # resettable dropdownButton
   output$resetable_input <- renderUI({
     times <- input$restore_defaults
     div(id=letters[(times %% length(letters)) + 1],
-        h2("Trinotate db setup"),
-    box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
+        h2("Trinotate db setup"),    
+        
+    box(
+        div(selectInput("db", "Trinotate db file", choices = dbs_list,
                         selected = dbs_list[[def_db]])),
         h4("Trinotate db information:"),
-        div(verbatimTextOutput("db_info")), width = 10),
-    box(div( textInput("query", "Annotation query", def_query),
-             actionButton("update_query", "Update table")), width = 10))
-    
+        div(verbatimTextOutput("db_info")), width = 12, title = "Trinotate db setup"), # 
+        
+        # textInput("query", "Annotation query", def_query),
+        # actionButton("update_query", "Update table", width = '150px'),
+        # actionButton("restore_defaults", "Restore defaults",  width = '150px'))
+        
+    box(textInput("query", "Annotation query", def_query),
+        box(actionButton("update_query", "Update table", width = '150px')),
+             box(actionButton("restore_defaults", "Restore defaults",  width = '150px')), width = 12)
+    )
   }) 
   
   
-  
-  # annot_query <- eventReactive(input$update_query, {
-  #   input$query
-  # })
-  # observeEvent(D1(),{
-  #   updateSelectInput(session, "selectinputid", "Language to Select:",  choices = unique(D1()$Language),selected = unique(D1()$Language)[1])
-  # })
-  
+ #### Pull annotation table from Trinotate ####
+  # make a reactive connection to the db 
   C1  <- reactive({
     dbplyr::src_dbi(DBI::dbConnect(RSQLite::SQLite(), input$db))
   })
+  # print db information
   output$db_info <- renderText({
     db_info <- R.utils::captureOutput(print(C1()))
     sprintf("%s\n%s", db_info[1], paste(db_info[-1], collapse = "\n"))
   }
     )
-  # con_values <- reactiveValues(con = DBI::dbConnect(RSQLite::SQLite(), input$db))
+  # initialise the table with default settings
   values <- reactiveValues(annot_table = {
-    get_annotation(dbplyr::src_dbi(def_con), def_query) # %>% dplyr::group_by(1) %>%
-      # dplyr::arrange(dplyr::desc(BitScore)) %>%
-      # dplyr::slice(1:num_results)
+    get_annotation(dbplyr::src_dbi(def_con), def_query) 
   } )  # %>% dplyr::group_by(TrinityId) %>%
     # dplyr::arrange(dplyr::desc(BitScore)) %>%
     # dplyr::slice(1:num_results)
   # dplyr::filter(between(row_number(), 1, num_results)) %>%
+  # update the table after db and/or query change
   observeEvent(c(input$update_query), { # , input$restore_defaults
     values$annot_table <- get_annotation(C1(), input$query)
-    updateTabItems(session, "sidebar", "annotation")
   })
-  # return settings to default
-  # D2 <- eventReactive(input$goButton1,{
-  #   D1()[D1()$Language %in% input$selectinputid,]
-  # })
   
+  #### Annotation table ####
   output$output_table <- DT::renderDataTable(values$annot_table,  rownames= F, # filter = "top",
                                extensions = c("Buttons", "Scroller",'FixedColumns',"FixedHeader"),
                                options = list(
@@ -186,6 +191,7 @@ server <- function(input, output, session) {
                                  # fixedColumns = list(leftColumns = 1, rightColumns = 0)#,  lengthMenu=20
                                  
                                  ))
+  # Row selection in table 
   # set the table as proxy to be able to update it
   proxy = dataTableProxy('output_table')
   # Identify button click 
@@ -198,11 +204,7 @@ server <- function(input, output, session) {
     proxy %>% selectRows(as.numeric(input$output_table_rows_all))
   })
   
-  # output$selected_var <- renderText({ 
-  #   paste("Your filtered table contains the following rows: ", 
-  #         paste(as.numeric(input$output_table_rows_all), collapse = ","))
-  # })
-  
+  #### Download sequences as fasta  ####
   output$download_fasta <- downloadHandler(
     filename = "selected_sequences.fasta",
     content = function(file) {
@@ -212,10 +214,10 @@ server <- function(input, output, session) {
       tx_ids <- unique(sub("\\|m\\..+", "", ids))
       cds_ids <- ids[grepl("\\|m\\..+", ids)]
       # extract transcript sequences
-      tx <- dplyr::tbl(src_dbi(con), "Transcript") %>% dplyr::filter(transcript_id %in% tx_ids) %>% 
+      tx <- dplyr::tbl(C1(), "Transcript") %>% dplyr::filter(transcript_id %in% tx_ids) %>% 
         dplyr::select(transcript_id, sequence) %>% dplyr::collect(n=Inf)
       # extract just the coding sequences
-      cds <- dplyr::tbl(src_dbi(con), "ORF") %>% dplyr::filter(orf_id %in% cds_ids) %>%  
+      cds <- dplyr::tbl(C1(), "ORF") %>% dplyr::filter(orf_id %in% cds_ids) %>%  
         dplyr::collect(n=Inf) %>% dplyr::mutate(cds=substr(tx$sequence[match(transcript_id, tx$transcript_id)], lend, rend), cds_2=ifelse(strand=="+", cds, chartr("ATGC","TACG",reverse(cds)))) %>% 
         dplyr::select(transcript_id=orf_id, sequence=cds_2) 
       # combine both whole transcripts and cds
