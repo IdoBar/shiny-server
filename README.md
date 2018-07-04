@@ -1,4 +1,4 @@
-# A Shiny server for Bioinformatics apps
+# An R Shiny server for Bioinformatics apps
 A web service accessible through a web browser (from anywhere), that holds a collection of [R shiny](https://shiny.rstudio.com/) apps to perform routine bioinformatics analyses.
 
 ## Shinotate
