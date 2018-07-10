@@ -1,5 +1,5 @@
-# A Shiny server for Bioinformatics apps
-A web service accessible through a web browser (from anywhere), that holds a collection of **shiny** apps to perform routine bioinformatics analyses.
+# An R Shiny server for Bioinformatics apps
+A web service accessible through a web browser (from anywhere), that holds a collection of [R shiny](https://shiny.rstudio.com/) apps to perform routine bioinformatics analyses.
 
 ## Shinotate
 A shiny app to deliver processed and annotated transcriptome data stored in [Trinotate](https://trinotate.github.io/) databases
