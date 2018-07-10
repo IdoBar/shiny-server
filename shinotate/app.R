@@ -12,7 +12,7 @@
 # install.deps("pacman") 
 
 CRAN_packages <- c("shiny", "dplyr", "purrr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", 
-                   "shinyWidgets", "Biostrings", "R.utils", "ggplot2", "plotly") # tidyverse
+                   "shinyWidgets", "Biostrings", "R.utils", "ggplot2", "plotly", "Cairo") # tidyverse
 pacman::p_load(char=CRAN_packages)
 
 
@@ -91,14 +91,15 @@ ui <- dashboardPage(skin = "purple",
               fluidRow(
                 box(
                   h2("Sample information"),
-                  p("Mantle tissues from pearl oysters were collected from two pearl families, differing in the average quality of their produced pearls. The mantle of each individual was dissected to 3 distinct regions: proximal, distal and central to the foot base."), width=11),
+                  p("Mantle tissues from pearl oysters were collected from two pearl families, differing in the average quality of their produced pearls. The mantle of each individual was dissected to 3 distinct regions: proximal, distal and central to the foot base."), width=10),
                 box(title = "Samples table",
                     div(DT::dataTableOutput("samples_table")),
                     br(),
                     div(
                       actionButton("excl_selected", label = "Exclude selected samples")# ,
                       # actionButton("select_all", label = "Select all")# ,
-                    ) , width=11))),
+                    ) , width=5),
+                box(, width=5))),
       # Annotation tab content
       tabItem(tabName = "annotation",
               fluidRow(
@@ -257,7 +258,7 @@ server <- function(input, output, session) {
                                responsive = TRUE,
                                # autoWidth = TRUE,
                                # columnDefs = list(list(width = '100px', targets = c(1, 5))),
-                               # pageLength = 15,
+                               pageLength = 12,
                                buttons =list('copy','print',
                                              list( extend = 'collection',
                                                    buttons = c('csv', 'excel'), # , 'pdf'
