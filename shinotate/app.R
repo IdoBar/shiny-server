@@ -50,6 +50,15 @@ calc_ExN50 <- function(ex, exp_data, tx_table){
          num_transcripts=length(tx_ids))
 } 
 
+# Extract annotation summary
+get_number_features <- function(con, table, cols){
+  table_data <- dplyr::tbl(con, table) %>% 
+    dplyr::select(one_of(cols)) %>% collect(n=Inf) 
+  setNames(list(c("Total" = nrow(table_data), "Unique" = length(unique(table_data[[1]])))), cols)
+  
+}
+# Basic tables and feature id
+queries <- c("transcript_id" = "Transcript", "gene_id" = "Transcript", "orf_id" = "ORF")
 # ExN50 <- dplyr::tbl(def_con, "ExN50_stats") %>% dplyr::rename(E.N50=`E-N50`) %>%
 #   collect() %>% mutate_at(-1, as.numeric) %>% mutate(Ex=as.numeric(gsub("E", "", .[["#E"]])))
 
@@ -62,12 +71,12 @@ ui <- dashboardPage(skin = "purple",
   dashboardSidebar(sidebarMenu(id = "sidebar",
                      menuItem("Transcript Annotation", tabName = "annotation",
                               icon = icon("list-alt", lib="glyphicon")), # icons: icon("dna", lib="font-awesome)
+                     menuItem("Transcriptome Stats", tabName = "stats",
+                              icon = icon("info-circle", lib="font-awesome")),
                      menuItem("Sample Information", tabName = "samples",
                               icon = icon("leaf", lib="glyphicon")),#, badgeLabel = "advanced", badgeColor = "green"),
                      menuItem("Transcript Expression", tabName = "expression", 
                               icon = icon("bar-chart-o")),
-                     menuItem("Transcriptome Stats", tabName = "stats",
-                              icon = icon("info-circle", lib="font-awesome")),
                      menuItem("Experimental Metadata", tabName = "metadata",
                               icon = icon("book", lib="glyphicon")), #, badgeLabel = "advanced", badgeColor = "green"),
                      br(),
@@ -126,8 +135,10 @@ ui <- dashboardPage(skin = "purple",
                   p("Mantle tissues from pearl oysters were collected from two pearl families, differing in the average quality of their produced pearls. The mantle of each individual was dissected from 3 distinct regions: proximal, distal and central to the foot base."), width=11)) ,
               fluidRow(
                 column(width=5,
-                  box(title = "Samples table",
-                      div(DT::dataTableOutput("samples_table")),
+                  box(#title = "Samples table",
+                      div(
+                        h3("Samples table"),
+                        DT::dataTableOutput("samples_table")),
                       br(),
                       div(
                         actionButton("excl_selected", label = "Exclude selected samples",
@@ -137,19 +148,22 @@ ui <- dashboardPage(skin = "purple",
                         # actionButton("select_all", label = "Select all")# ,
                       ) , width=NULL)),
                 column(width=6,
-                  box(title = "PCA plot", uiOutput("PCA_ui"), width=12),
-                  column(width=6,
+                  box(#title = "PCA plot", 
+                      h3("PCA plot"),
+                      uiOutput("PCA_ui"), width=12),
+                  column(width=5,
                   div(class = "option-group",
-                      h4("PCA parameters"),
+                      h3("PCA parameters"),
                   # box(title = "PCA parameters", width=NULL,
                       
                       div(style="display:inline-block",
                           awesomeRadio("feature", "Feature type",
-                                       choices = c("Transcript", "Gene"), inline = TRUE, status="primary")),
+                                       choices = c("Transcript", "Gene"), inline = TRUE, 
+                                       status="primary")),
                       div(style="display: inline-block; width: 50px;",
                           HTML("<br>")),
                       div(style="display:inline-block",
-                          shinyWidgets::actionBttn("recalc_pca", "Calculate PCA", icon = icon("refresh"),
+                          actionBttn("recalc_pca", "Calculate PCA", icon = icon("refresh"),
                                      style = "jelly", size = "sm", color="primary")), # settings for shinywidgets::actionBttn
                           sliderInput("min_counts", "Min count to keep gene/transcript",
                                       min=1, max=100, value=10, step=1),
@@ -166,10 +180,10 @@ ui <- dashboardPage(skin = "purple",
                                          status = "primary", inline = TRUE, value=FALSE)))),
                       # div()#)
                         # ),
-                column(width=6,
+                column(width=7,
                        # box(title = "Modify plot appearance", width=NULL,
                            div(class = "option-group", 
-                               h4("Modify plot"),
+                               h3("Modify plot"),
                                uiOutput("design_selection"),
                                awesomeRadio("prin_comp", "Principal components to plot",
                                                   c("1:2", "3:4"), selected = "1:2", inline = TRUE, 
@@ -189,7 +203,7 @@ ui <- dashboardPage(skin = "purple",
                                                           "Classic" = "classic", "Dark" = "dark", "Light" = "light"), 
                                            selected = "grey")), # , width = '45%'
                                sliderInput("plot_font_size", "Font base size",
-                                           min=5, max=30, value=16, step=1)
+                                           min=5, max=30, value=15, step=1)
                                )) # verbatimTextOutput("brush_selection")
                       # )
                   ))),
@@ -207,8 +221,9 @@ ui <- dashboardPage(skin = "purple",
                     strong("Selection and Download"), " buttons below the table)."), width=11
                 ),
                 br(), br(),
-                box(title = "Transcript annotation table",
-                  div(DT::dataTableOutput("annot_table")),
+                box(# title = "Transcript annotation table",
+                  div(h3("Transcript annotation table"),
+                    DT::dataTableOutput("annot_table")),
                   br(),
                   div(
                     downloadButton("download_fasta", 
@@ -221,28 +236,37 @@ ui <- dashboardPage(skin = "purple",
       # Transcriptome stats tab content
       tabItem(tabName = "stats",
               fluidRow(
-                box(
-                  h2("Transcriptome summary statistics"),
-                  h3("ExN50 plot:"),
-                  p("An alternative to the Contig Nx statistic that could be considered more appropriate for transcriptome assembly data is the ExN50 statistic. Here, the N50 statistic is computed as above but limited to the top most highly expressed transcripts that represent x% of the total normalized expression data (Ex).",
+                # box(
+                #   h2("Transcriptome summary"),
+                #   # h3("Annotation summary"),
+                #   
+                #    width=11),
+                #   br(),
+                box(width=4, #title = "Annotation summary",
+                    div(h3("Annotation summary"),
+                        p("Each annotation table was summarised to find the unique number of annotations for each feature across the transcriptome. The information is summarised in the table below."),
+                        DT::dataTableOutput("annot_sum"))),
+                box(width=6,
+                  h3("ExN50 plot"),
+                  p("An alternative to the Contig Nx statistic that could be considered more appropriate for transcriptome assembly data is the ExN50 statistic. It is computed as the traditional N50, but limited to the top most highly expressed transcripts that represent x% of the total normalized expression data (Ex).",
                     "Additional information on the ExN50 statistic can be found at the ", a("Trinity documentation wiki", href="https://github.com/trinityrnaseq/trinityrnaseq/wiki/Transcriptome-Contig-Nx-and-ExN50-stats"), "."),
-                  actionButton("plot_ExN50", label = "Calculate and Plot ExN50"), width=11),
-                  br(),
-                  box(uiOutput('ExN50_plot'), width=6 ))
+                  actionBttn("plot_ExN50", "Calculate and Plot ExN50",# icon = icon("refresh"),
+                             style = "jelly", size = "sm", color="primary"),
+                  # actionButton("plot_ExN50", label = "Calculate and Plot ExN50"),
+                  uiOutput('ExN50_plot'))
+                  )
               ),
     # Expression tab content
     tabItem(tabName = "expression",
             h2("Transcript expression")),
+            # imageOutput("exp_image")),
     # Metadata (analysis pipeline) tab content
     tabItem(tabName = "metadata",
             fluidRow(
               box(
                 h2("Metadata (experimental design and analysis pipeline)"),
-                h3("Pearl Oyster (", em("Pinctada maxima"), ") mantle transcriptome database"), 
-                p("Mantle tissues from pearl oysters were collected, RNA was extracted and was subjected to RNA-Sequencing to identify differentially expressed genes between different regions of the mantle muscle, and high/low quality pearl producing genetic families."),
-                p("The resulting data was ", em("de novo"), 
-                  " assembled into a reference transcriptome, which was annotated and stored in a ",
-                a("Trinotate", href="http://trinotate.github.io/") ," database. Transcript and gene counts were estimated (using RSEM) and added to the database." ), width=11)))# ,
+            # includeHTML("/mnt/Shinotate_data/Assembly_stats/P_maxima_tissues_assembly_stats.html"),
+            width=12)))# ,
     
     # Trinotate setup tab content (currently settings are in a dropdownButton in the sidebar)
     # tabItem(tabName = "settings") #,
@@ -251,7 +275,7 @@ ui <- dashboardPage(skin = "purple",
             # h2("Trinotate db setup"),
             # box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
             #                     selected = dbs_list$P_maxima_mantle_Trinotate_local.sqlite)),
-            #     h4("Trinotate db information:"),
+            #     h3("Trinotate db information:"),
             #     div(textOutput("db_info")), width = 10),
             #   box(div( textInput("query", "Annotation query", def_query),
             #          actionButton("update_query", "Update table"))),
@@ -281,6 +305,17 @@ server <- function(input, output, session) {
     )}, deleteFile = FALSE)
   
   
+  output$exp_image <- renderImage({
+    list(
+      src = "/srv/shiny-server/shinotate/www/Buccalin_KiSS-1r_genes_panel_05_06_2017.png",
+      # # contentType = "image/jpg", 
+      # height = 120,
+      alt = "Transcript expression"
+    )}, deleteFile = FALSE)
+    # When input$n is 3, filename is ./images/image3.jpeg
+    # filename <- normalizePath(file.path('/mnt/Shinotate_data/plots',
+    #                                     'Buccalin_KiSS-1r_genes_panel_05_06_2017.png'))
+
   # resettable dropdownButton
   output$resetable_input <- renderUI({
     times <- input$restore_defaults
@@ -289,7 +324,7 @@ server <- function(input, output, session) {
     box(
         div(selectInput("db", "Trinotate db file", choices = dbs_list,
                         selected = dbs_list[[def_db]])),
-        h4("Trinotate db information:"),
+        h3("Trinotate db information:"),
         div(verbatimTextOutput("db_info")), width = 11), # , title = "Trinotate db setup"
         
         # textInput("query", "Annotation query", def_query),
@@ -330,9 +365,9 @@ server <- function(input, output, session) {
   
   
   # Update value
-  observeEvent(input$plot_ExN50,{
-    values$show_exn50 <- TRUE
-  })
+  # observeEvent(input$plot_ExN50,{
+  #   values$show_exn50 <- TRUE
+  # })
   
   # print db information
   
@@ -353,7 +388,7 @@ server <- function(input, output, session) {
                        )
   })
   output$samples_table <- DT::renderDataTable(values$samples_table,  
-                                              rownames= F, # filter = "top",
+                                              rownames= T, # filter = "top",
                              extensions = c("Buttons", "Scroller"), # ,'FixedColumns',"FixedHeader"
                              options = list(
                                dom = 'Bfrtip',
@@ -418,7 +453,7 @@ server <- function(input, output, session) {
   #   print(brushedPoints(PCA_data(), input$plot_brush))
   # })
   
-  #### Calculate and plt PCA ####
+  #### Calculate and plot PCA ####
   calc_PCA <- eventReactive(c(input$recalc_pca, input$excl_selected), {
                       
     feature_selection <- substr(input$feature, 1, 1) #"T"
@@ -502,7 +537,7 @@ server <- function(input, output, session) {
       g <- ggplot(PCA_data(), aes_string(sprintf("PC%s", prin_comps[1]), sprintf("PC%s", prin_comps[2]), 
                                        color=PCA_intgroups1, shape=PCA_intgroups2)) +
         xlab(sprintf("PC%s: %.2f%% variance", prin_comps[1], percentVar[prin_comps[1]])) + 
-        geom_point(size=3.5) +
+        geom_point(size=4) +
         ylab(sprintf("PC%s: %.2f%% variance", prin_comps[2], percentVar[prin_comps[2]])) + 
         scale_color_brewer(palette = brew_pal) +
         user_theme(input$plot_font_size) +
@@ -511,47 +546,54 @@ server <- function(input, output, session) {
       # })
   })
 
+  ##### Annotation Summary rendering  #####
+  
+  ##### ExN50 data and plot ####
+  exn50_data <- eventReactive(input$plot_ExN50, {
+    withProgress(message = 'Calculating ExN50: ', value = 0,{
+      incProgress(1/4, detail = "Retrieving transcripts")
+      # retrieve transcripts
+      tx_data <- dplyr::tbl(values$annot_conn, "Transcript") %>% 
+        dplyr::select(TrinityID=transcript_id, sequence) %>%
+        dplyr::collect(n=Inf)
+      incProgress(2/4, detail = "Retrieving expression data")
+      # Retrieve Expression data
+      exp_data <-  dplyr::tbl(values$annot_conn, "Expression") %>% dplyr::filter(feature_type=="T") %>% 
+        dplyr::group_by(feature_name) %>% dplyr::summarise(feature_count=sum(fpkm)) %>% 
+        dplyr::filter(feature_count>0) %>% dplyr::collect(n=Inf) %>% 
+        dplyr::arrange(desc(feature_count)) %>% 
+        dplyr::mutate(cum_sum=cumsum(feature_count)) %>% 
+        dplyr::mutate(percentile=cum_sum/sum(feature_count)*100)
+      # Calculate ExN50 (see https://github.com/trinityrnaseq/trinityrnaseq/wiki/Transcriptome-Contig-Nx-and-ExN50-stats)
+      incProgress(3/4, detail = "Calculating ExN50")
+      purrr::map_df(1:100, ~ dplyr::bind_rows(calc_ExN50(., exp_data, tx_data)))
+    })
+  })
   
   output$ExN50_plot <- renderUI({
-    if (values$show_exn50==TRUE){
-      withProgress(message = 'Calculating ExN50: ', value = 0,{
-        incProgress(1/4, detail = "Retrieving transcripts")
-        # retrieve transcripts
-        tx_data <- dplyr::tbl(values$annot_conn, "Transcript") %>% 
-          dplyr::select(TrinityID=transcript_id, sequence) %>%
-          dplyr::collect(n=Inf)
-        incProgress(2/4, detail = "Retrieving expression data")
-        # Retrieve Expression data
-        exp_data <-  dplyr::tbl(values$annot_conn, "Expression") %>% dplyr::filter(feature_type=="T") %>% 
-          dplyr::group_by(feature_name) %>% dplyr::summarise(feature_count=sum(fpkm)) %>% 
-          dplyr::filter(feature_count>0) %>% dplyr::collect(n=Inf) %>% 
-          dplyr::arrange(desc(feature_count)) %>% 
-          dplyr::mutate(cum_sum=cumsum(feature_count)) %>% 
-          dplyr::mutate(percentile=cum_sum/sum(feature_count)*100)
-        # Calculate ExN50 (see https://github.com/trinityrnaseq/trinityrnaseq/wiki/Transcriptome-Contig-Nx-and-ExN50-stats)
-        incProgress(3/4, detail = "Calculating ExN50")
-        ExN50_table <<- purrr::map_df(1:100, ~ dplyr::bind_rows(calc_ExN50(., exp_data, 
-                                                                           tx_data)))
-        E100N50 <<- ExN50_table %>% dplyr::filter(Ex==100)
-        EmaxN50 <<- ExN50_table %>% dplyr::filter(ExN50==max(ExN50))
-      })
+    # if (values$show_exn50==TRUE){
+      
+        E100N50 <<- exn50_data() %>% dplyr::filter(Ex==100)
+        EmaxN50 <<- exn50_data() %>% dplyr::filter(ExN50==max(ExN50))
+      # })
       div(plotlyOutput('ExN50Plot', height = "350px"),
           br(),
-      p("The ExN50 per each Ex plot shows that the effective N50 'improved' from ", 
+      p("The ExN50 per Ex plot above shows that the effective N50 'improved' from ", 
             strong(sprintf(" %s bp to %s bp (at E%sN50)", 
                            prettyNum(E100N50$ExN50, big.mark = ","), 
                            prettyNum(EmaxN50$ExN50, big.mark = ","),EmaxN50$Ex )),
-        "compared with the N50 caluclated with all transcripts (E100)."))
-    } else {
-      p("Click on the button above to calculate and show ExN50 plot")
-    }
+        "compared with the N50 calculated with all transcripts (E100)."))
+    # } else {
+    #   p("Click on the button to calculate and show ExN50 plot")
+    # }
     
   })
   
   # Render plotly 
   output$ExN50Plot <- renderPlotly({
-    
-    g <- ggplot(ExN50_table, aes(x=Ex, y=ExN50)) +
+    # Reduce margins
+    old_mar <- par(mar = c(1, 2, 1, 2))
+    g <- ggplot(exn50_data(), aes(x=Ex, y=ExN50)) +
       geom_line(col = "blue", size=1) + ylab("ExN50 (bp)")+ xlab("Ex (%)") +
       theme_bw(base_size = 16) +
       scale_y_continuous(expand = c(0,0), limits = c(0,ceiling(EmaxN50$ExN50/1000)*1000)) + 
@@ -565,8 +607,79 @@ server <- function(input, output, session) {
     # annotate("text", x=E100N50$Ex-2,y=E100N50$E.N50+50, label=paste("N50 =",
     #                                                 prettyNum(E100N50$E.N50, big.mark = ","), "bp"), hjust=1)
     NULL    
+    
+    if (names(dev.cur()) != "null device") dev.off()
+    pdf(NULL)
     ggplotly(g)
   })
+  
+  #### Annotation summary table ####
+  
+    #### Summarise stats #####
+  output$annot_sum <- DT::renderDataTable({
+    withProgress(message = 'Summarising annotations', value = 0,{
+      incProgress(1/8)
+    # summarise number of transcripts, genes and orfs
+    sum_annot <- sapply(names(queries), 
+                        function(nq) get_number_features(values$annot_conn, queries[nq], nq ), 
+                        USE.NAMES = FALSE) %>% map_dbl("Unique") 
+    incProgress(2/8)
+    blast_tax_sum <- dplyr::tbl(values$annot_conn, "Blast_tax") %>% 
+      dplyr::select(TrinityId, DatabaseSource) %>% collect(n=Inf) %>% 
+      group_by(DatabaseSource) %>% summarise(Unique=n()) %>% 
+      mutate(Feature=paste(c( "orf", "transcript"), DatabaseSource, "annotations", sep = "_")) %>%
+      dplyr::select(Feature, Unique)
+    # update progress
+    incProgress(3/8)
+    blastp_sum <- dplyr::tbl(values$annot_conn, "BlastDbase") %>% 
+      dplyr::select(TrinityID, Feature=DatabaseSource) %>% 
+      collect(n=Inf) %>%  distinct() %>% group_by(Feature) %>% summarise(Unique=n())
+    # update progress
+    incProgress(4/8)
+    pfam_sum <- dplyr::tbl(values$annot_conn, sql("SELECT H.QueryProtID, substr(H.pfam_id,1,7) pfam_acc, G.GO_terms FROM (SELECT * FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore)) H JOIN (SELECT pfam_acc, group_concat(go_id) AS GO_terms FROM pfam2go GROUP BY pfam_acc) G ON substr(H.pfam_id,1,7)=G.pfam_acc")) %>%
+      dplyr::select(pfam_acc) %>% distinct() %>% collect() %>%
+      nrow() %>% tibble(Feature="Pfam", Unique=.)
+    # update progress
+    incProgress(5/8)
+    go_sum <- dplyr::tbl(values$annot_conn, sql("SELECT H.QueryProtID, substr(H.pfam_id,1,7) pfam_acc, G.GO_terms FROM (SELECT * FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore)) H JOIN (SELECT pfam_acc, group_concat(go_id) AS GO_terms FROM pfam2go GROUP BY pfam_acc) G ON substr(H.pfam_id,1,7)=G.pfam_acc")) %>%
+      dplyr::select(GO_terms) %>% collect() 
+    # update progress
+    incProgress(6/8)
+    go_df <- tibble(Feature="GO", Unique=length(unique(unlist(go_sum$GO_terms))))
+    ko_sum <- dplyr::tbl(values$annot_conn, "ORF_KO") %>% filter(KO_ID!="None") %>% 
+      dplyr::select(Feature=KO_ID) %>% collect() %>% distinct() %>%
+      nrow() %>% tibble(Feature="KEGG", Unique=.)
+    incProgress(3/8)
+    signalP_sum <- dplyr::tbl(values$annot_conn, "SignalP") %>% filter(prediction=="YES") %>% 
+      dplyr::select(Feature=query_prot_id) %>% collect() %>% distinct() %>%
+      nrow() %>% tibble(Feature="SignalP", Unique=.)
+    # update progress
+    incProgress(7/8)
+    tmhmm_sum <- dplyr::tbl(values$annot_conn, "tmhmm") %>% filter(PredHel=="PredHel=1") %>% 
+      dplyr::select(Feature=queryprotid) %>% collect() %>% distinct() %>%
+      nrow() %>% tibble(Feature="TmHMM", Unique=.)
+    })
+    # Summarise all together
+    tibble(Feature=names(sum_annot), Unique=sum_annot) %>% 
+      bind_rows(blast_tax_sum,blastp_sum, pfam_sum,                                                             go_df, ko_sum, signalP_sum, tmhmm_sum) }, 
+    rownames= FALSE,
+    extensions = c("Buttons", "Scroller"), # ,'FixedColumns',"FixedHeader"
+    options = list(
+      dom = '<"bottom"B>rtip',
+      responsive = TRUE,
+      # autoWidth = TRUE,
+      # columnDefs = list(list(width = '100px', targets = c(1, 5))),
+      pageLength = 12,
+      paging=TRUE,scrollY = 420,
+      scroller = TRUE,
+      buttons =list('copy','print',
+                    list( extend = 'collection',
+                          buttons = c('csv', 'excel'), # , 'pdf'
+                          text = 'Download'))
+    
+  ))
+  
+  
   
   #### Annotation table ####
   output$annot_table <- DT::renderDataTable(values$annot_table,  rownames= F, # filter = "top",
@@ -599,7 +712,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$select_all, {
     # print(as.numeric(input$output_table_rows_all))
-    annot_proxy %>% selectRows(as.numeric(input$output_table_rows_all))
+    annot_proxy %>% selectRows(as.numeric(input$annot_table_rows_all))
   })
   
   #### Download sequences as fasta  ####
@@ -608,17 +721,20 @@ server <- function(input, output, session) {
     filename = "selected_sequences.fasta",
     content = function(file) {
       # input_output_table_rows_selected = 1:10
-      ids <- values$annot_table$TrinityID[input$output_table_rows_selected]
+      ids <- values$annot_table$TrinityID[input$annot_table_rows_selected]
       # ids <- mantle_annot$TrinityId[input_output_table_rows_selected]
       tx_ids <- unique(sub("\\|m\\..+", "", ids))
       cds_ids <- ids[grepl("\\|m\\..+", ids)]
       # extract transcript sequences
-      tx <- dplyr::tbl(values$annot_conn, "Transcript") %>% dplyr::filter(transcript_id %in% tx_ids) %>% 
+      tx <- dplyr::tbl(values$annot_conn, "Transcript") %>% 
+        dplyr::filter(transcript_id %in% tx_ids) %>% 
         dplyr::select(transcript_id, sequence) %>% dplyr::collect(n=Inf)
       # extract just the coding sequences (reverse complement if on the minus strand)
       cds <- dplyr::tbl(values$annot_conn, "ORF") %>% dplyr::filter(orf_id %in% cds_ids) %>%  
-        dplyr::collect(n=Inf) %>% dplyr::mutate(cds=substr(tx$sequence[match(transcript_id, tx$transcript_id)], 
-                                 lend, rend), cds_2=ifelse(strand=="+", cds, chartr("ATGC","TACG",reverse(cds)))) %>% 
+        dplyr::collect(n=Inf) %>% 
+        dplyr::mutate(cds=substr(tx$sequence[match(transcript_id, tx$transcript_id)], 
+                                 lend, rend), 
+                      cds_2=ifelse(strand=="+", cds, chartr("ATGC","TACG",reverse(cds)))) %>% 
         dplyr::select(transcript_id=orf_id, sequence=cds_2) 
       # combine both whole transcripts and cds
       seqs_out <- tx %>% dplyr::filter(transcript_id  %in% ids[!grepl("\\|m\\..+", ids)]) %>% 
