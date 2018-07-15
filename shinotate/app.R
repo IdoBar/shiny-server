@@ -21,7 +21,7 @@ db_files <- list.files("/mnt/Shinotate_data/Trinotate_dbs", pattern = "[tT]rinot
                        full.names = TRUE)
 dbs_list <- setNames(as.list(db_files), basename(db_files))
 ##### Specify default parameters #####
-def_query <- "SELECT * FROM BlastDbase" # ORF_annotation / BlastDbase / blast_annotation
+def_query <- "SELECT * FROM blast_annotation" # ORF_annotation / BlastDbase / blast_annotation
 def_db <- "P_maxima_mantle_Trinotate_local.sqlite"
 # def_con <- DBI::dbConnect(RSQLite::SQLite(), dbs_list[[def_db]]) # /srv/shiny-server/bioinfo03/data/Paspaley/Annotation_dbs
 num_results <- 1
@@ -57,14 +57,14 @@ get_number_features <- function(con, table, cols){
   setNames(list(c("Total" = nrow(table_data), "Unique" = length(unique(table_data[[1]])))), cols)
   
 }
-# Basic tables and feature id
+# Features and the tables that holds them (for summarising)
 queries <- c("transcript_id" = "Transcript", "gene_id" = "Transcript", "orf_id" = "ORF")
 # ExN50 <- dplyr::tbl(def_con, "ExN50_stats") %>% dplyr::rename(E.N50=`E-N50`) %>%
 #   collect() %>% mutate_at(-1, as.numeric) %>% mutate(Ex=as.numeric(gsub("E", "", .[["#E"]])))
 
 
 
-# Define UI for application that draws a histogram
+# Define UI for the application 
 ui <- dashboardPage(skin = "purple", 
   dashboardHeader(title = "Shinotate - Transcriptome annotation app", titleWidth = 450),
 
@@ -387,7 +387,7 @@ server <- function(input, output, session) {
                        status = "primary" #,thick = TRUE, animation = "smooth", bigger=FALSE, outline=TRUE
                        )
   })
-  output$samples_table <- DT::renderDataTable(values$samples_table,  
+  output$samples_table <- DT::renderDataTable(values$samples_table, server = FALSE,  
                                               rownames= T, # filter = "top",
                              extensions = c("Buttons", "Scroller"), # ,'FixedColumns',"FixedHeader"
                              options = list(
@@ -425,7 +425,7 @@ server <- function(input, output, session) {
   # Identify button click
   observeEvent(input$plot_click, {
     res <- nearPoints(PCA_data(), input$plot_click,
-                      threshold = 3)
+                      threshold = 5)
     samples_proxy %>% selectRows(which(values$samples_table[[1]] %in% res$name))
   })
   
@@ -524,8 +524,16 @@ server <- function(input, output, session) {
             PCA_intgroups1 <-  input$pca_intgroups[1] },
         {PCA_intgroups1 <-  input$pca_intgroups[1]
              PCA_intgroups2 <-  input$pca_intgroups[2]}
-        
+
       )
+      # 
+      # PCA_intgroups1 <- case_when(length(input$pca_intgroups)==0 ~ NULL,
+      #                             length(input$pca_intgroups)>0 ~ input$pca_intgroups[1])
+      # 
+      # PCA_intgroups2 <- case_when(length(input$pca_intgroups)==0 ~ NULL,
+      #                             length(input$pca_intgroups)==1 ~ NULL,
+      #                             length(input$pca_intgroups)==2 ~ input$pca_intgroups[2])
+      
       
       
       brew_pal <- input$brew_pal
@@ -558,7 +566,8 @@ server <- function(input, output, session) {
         dplyr::collect(n=Inf)
       incProgress(2/4, detail = "Retrieving expression data")
       # Retrieve Expression data
-      exp_data <-  dplyr::tbl(values$annot_conn, "Expression") %>% dplyr::filter(feature_type=="T") %>% 
+      exp_data <-  dplyr::tbl(values$annot_conn, "Expression") %>% 
+        dplyr::filter(feature_type=="T") %>% 
         dplyr::group_by(feature_name) %>% dplyr::summarise(feature_count=sum(fpkm)) %>% 
         dplyr::filter(feature_count>0) %>% dplyr::collect(n=Inf) %>% 
         dplyr::arrange(desc(feature_count)) %>% 
@@ -610,7 +619,8 @@ server <- function(input, output, session) {
     
     if (names(dev.cur()) != "null device") dev.off()
     pdf(NULL)
-    ggplotly(g)
+    g
+    # ggplotly(g)
   })
   
   #### Annotation summary table ####
@@ -662,7 +672,7 @@ server <- function(input, output, session) {
     # Summarise all together
     tibble(Feature=names(sum_annot), Unique=sum_annot) %>% 
       bind_rows(blast_tax_sum,blastp_sum, pfam_sum,                                                             go_df, ko_sum, signalP_sum, tmhmm_sum) }, 
-    rownames= FALSE,
+    rownames= FALSE, server = FALSE, 
     extensions = c("Buttons", "Scroller"), # ,'FixedColumns',"FixedHeader"
     options = list(
       dom = '<"bottom"B>rtip',
@@ -682,7 +692,8 @@ server <- function(input, output, session) {
   
   
   #### Annotation table ####
-  output$annot_table <- DT::renderDataTable(values$annot_table,  rownames= F, # filter = "top",
+  output$annot_table <- DT::renderDataTable(values$annot_table,  server = FALSE,
+                               rownames= F, # filter = "top",
                                extensions = c("Buttons", "Scroller",'FixedColumns',"FixedHeader"),
                                options = list(
                                  dom = 'Bfrtip',
