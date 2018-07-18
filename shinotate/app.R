@@ -11,13 +11,15 @@ devtools::source_gist('7f63547158ecdbacf31b54a58af0d1cc', filename = 'util.R')
 # load needed packages. Note that for the shiny app, these need to be preinstalled with root priviliges (sudo su - -c "R -e \"install.packages('pacman', repos='http://cran.rstudio.com/')\"")
 # install.deps("pacman") 
 
-CRAN_packages <- c("shiny", "dplyr", "purrr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", 
-                   "shinyWidgets", "Biostrings", "R.utils", "ggplot2", "plotly", "Cairo", "DESeq2") # tidyverse
-pacman::p_load(char=CRAN_packages)
+CRAN_packages <- c("shiny", "dplyr", "purrr", "sqldf", "dbplyr", "DT", "RSQLite",
+                   "shinydashboard", "shinyWidgets", "Biostrings", "R.utils", 
+                   "ggplot2", "plotly", "Cairo", "DESeq2") # tidyverse
+pacman::p_load(char=CRAN_packages, install = FALSE)
 
 
 # Find all available files
-db_files <- list.files("/mnt/Shinotate_data/Trinotate_dbs", pattern = "[tT]rinotate.*\\.sqlite", 
+db_files <- list.files("/mnt/Shinotate_data/Trinotate_dbs", 
+                       pattern = "[tT]rinotate.*\\.sqlite", 
                        full.names = TRUE)
 dbs_list <- setNames(as.list(db_files), basename(db_files))
 ##### Specify default parameters #####
@@ -692,7 +694,7 @@ server <- function(input, output, session) {
   
   
   #### Annotation table ####
-  output$annot_table <- DT::renderDataTable(values$annot_table,  server = FALSE,
+  output$annot_table <- DT::renderDataTable(values$annot_table,  server = TRUE,
                                rownames= F, # filter = "top",
                                extensions = c("Buttons", "Scroller",'FixedColumns',"FixedHeader"),
                                options = list(
