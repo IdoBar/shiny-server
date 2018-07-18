@@ -11,28 +11,34 @@ devtools::source_gist('7f63547158ecdbacf31b54a58af0d1cc', filename = 'util.R')
 # load needed packages. Note that for the shiny app, these need to be preinstalled with root priviliges (sudo su - -c "R -e \"install.packages('pacman', repos='http://cran.rstudio.com/')\"")
 # install.deps("pacman") 
 
-CRAN_packages <- c("shiny", "dplyr", "purrr", "sqldf", "dbplyr", "DT", "RSQLite", "shinydashboard", 
-                   "shinyWidgets", "Biostrings", "R.utils", "ggplot2", "plotly", "Cairo", "DESeq2") # tidyverse
+CRAN_packages <- c("MonetDBLite","shiny", "dplyr", "purrr", "sqldf", "dbplyr", "DT", "RSQLite", 
+                   "shinydashboard", "shinyWidgets", "Biostrings", "R.utils", "ggplot2", "plotly", 
+                   "Cairo", "DESeq2") # tidyverse
 pacman::p_load(char=CRAN_packages)
 
 
 # Find all available files
 db_files <- list.files("/mnt/Shinotate_data/Trinotate_dbs", pattern = "[tT]rinotate.*\\.sqlite", 
                        full.names = TRUE)
-dbs_list <- setNames(as.list(db_files), basename(db_files))
+
+monet_dirs <- file.info(list.files("/mnt/Shinotate_data/Trinotate_dbs", pattern = "monetdb$", 
+                        full.names = TRUE)) %>% filter(isdir==TRUE) %>% tibble::rownames_to_column("filename")
+databases <- c(db_files, monet_dirs$filename)
+dbs_list <- setNames(as.list(databases), basename(databases))
 ##### Specify default parameters #####
-def_query <- "SELECT * FROM blast_annotation" # ORF_annotation / BlastDbase / blast_annotation
-def_db <- "P_maxima_mantle_Trinotate_local.sqlite"
+def_query <- 'SELECT * FROM "blast_annotation"' # ORF_annotation / BlastDbase / blast_annotation
+def_proj <- "P_maxima_mantle" # _Trinotate_local.sqlite
+def_db <- basename(monet_dirs$filename[grepl(def_proj, monet_dirs$filename)])
 # def_con <- DBI::dbConnect(RSQLite::SQLite(), dbs_list[[def_db]]) # /srv/shiny-server/bioinfo03/data/Paspaley/Annotation_dbs
 num_results <- 1
 max_intgroups <- 2
 brew_pals <- row.names(RColorBrewer::brewer.pal.info[RColorBrewer::brewer.pal.info$category=="qual",])
 brew_pals <- setNames(brew_pals, brew_pals)
+
 # annot_query <- def_query
-get_annotation <- function(db_src, query){
-  dplyr::tbl(db_src, dplyr::sql(query)) %>% 
-    dplyr::collect(n=Inf)
-}
+# get_ <- function(con, query){
+#   DBI::dbGetQuery(con, query) %>% as_tibble()
+# }
 
 # Calculate ExN50
 calc_N50 <- function(tx_table){
@@ -52,8 +58,7 @@ calc_ExN50 <- function(ex, exp_data, tx_table){
 
 # Extract annotation summary
 get_number_features <- function(con, table, cols){
-  table_data <- dplyr::tbl(con, table) %>% 
-    dplyr::select(one_of(cols)) %>% collect(n=Inf) 
+  table_data <- DBI::dbGetQuery(con, sprintf('SELECT "%s" FROM "%s"', paste(cols, collapse = '","'), table))
   setNames(list(c("Total" = nrow(table_data), "Unique" = length(unique(table_data[[1]])))), cols)
   
 }
@@ -268,21 +273,7 @@ ui <- dashboardPage(skin = "purple",
             # includeHTML("/mnt/Shinotate_data/Assembly_stats/P_maxima_tissues_assembly_stats.html"),
             width=12)))# ,
     
-    # Trinotate setup tab content (currently settings are in a dropdownButton in the sidebar)
-    # tabItem(tabName = "settings") #,
-            # uiOutput('resetable_input')
-            
-            # h2("Trinotate db setup"),
-            # box(div(selectInput("db", "Trinotate db file", choices = dbs_list,
-            #                     selected = dbs_list$P_maxima_mantle_Trinotate_local.sqlite)),
-            #     h3("Trinotate db information:"),
-            #     div(textOutput("db_info")), width = 10),
-            #   box(div( textInput("query", "Annotation query", def_query),
-            #          actionButton("update_query", "Update table"))),
-            # tags$hr(),
-            # br(),
-            # box(div(actionButton("restore_defaults", "Restore defaults")), width = 2)
-            # )
+
     )
   )
 )
@@ -310,7 +301,7 @@ server <- function(input, output, session) {
       src = "/srv/shiny-server/shinotate/www/Buccalin_KiSS-1r_genes_panel_05_06_2017.png",
       # # contentType = "image/jpg", 
       # height = 120,
-      alt = "Transcript expression"
+      alt = "Transcript expression example"
     )}, deleteFile = FALSE)
     # When input$n is 3, filename is ./images/image3.jpeg
     # filename <- normalizePath(file.path('/mnt/Shinotate_data/plots',
@@ -319,12 +310,12 @@ server <- function(input, output, session) {
   # resettable dropdownButton
   output$resetable_input <- renderUI({
     times <- input$restore_defaults
-    div(id=letters[(times %% length(letters)) + 1], style = "color: black !important;",
+    div(id=letters[(times %in% length(letters)) + 1], style = "color: black !important;",
         h2("Trinotate db setup"),    
     box(
         div(selectInput("db", "Trinotate db file", choices = dbs_list,
                         selected = dbs_list[[def_db]])),
-        h3("Trinotate db information:"),
+        h3("Trinotate db tables:"),
         div(verbatimTextOutput("db_info")), width = 11), # , title = "Trinotate db setup"
         
         # textInput("query", "Annotation query", def_query),
@@ -334,8 +325,10 @@ server <- function(input, output, session) {
     box(textInput("query", "Annotation query", def_query),
         actionButton("update_query", "Update table", width = '150px', 
                      style = "display: inline-block !important;"),
-             actionButton("restore_defaults", "Restore defaults",  width = '150px', 
+        actionButton("restore_defaults", "Restore defaults",  width = '150px', 
                           style = "display: inline-block !important;"), 
+        actionButton("convert_db", "Convert to MonetDB",  width = '150px', 
+                     style = "display: inline-block !important;"),
         width = 11)
     )
   }) 
@@ -344,36 +337,53 @@ server <- function(input, output, session) {
  ##### Define reactive and observed events/values ###### 
   # make a reactive connection to the db 
   C1  <- reactive({
-    dbplyr::src_dbi(DBI::dbConnect(RSQLite::SQLite(), input$db))
+    sel_db <- ifelse(is.null(input$db), dbs_list[[def_db]], input$db)
+    if (grepl("monetdb", sel_db)) {
+      DBI::dbConnect(RSQLite::SQLite(), sel_db)
+    } else if (grepl("sqlite", sel_db)) {
+    DBI::dbConnect(MonetDBLite::MonetDBLite(), sel_db)
+    }
+    # dbplyr::src_dbi(DBI::dbConnect(RSQLite::SQLite(), input$db))
   })
   
   # initialise the connection with default settings
-  values <- reactiveValues(annot_conn = DBI::dbConnect(RSQLite::SQLite(), dbs_list[[def_db]]),
-                    annot_table = get_annotation(dbplyr::src_dbi(DBI::dbConnect(RSQLite::SQLite(), 
-                                                  dbs_list[[def_db]])), def_query),
-                    samples_table = dplyr::tbl(DBI::dbConnect(RSQLite::SQLite(), dbs_list[[def_db]]), 
-                                                      "samples_table") %>%  collect(n=Inf),
-                           show_exn50 = FALSE)
+  values <- reactiveValues(show_exn50 = FALSE,
+           # annot_conn = DBI::dbConnect(RSQLite::SQLite(), dbs_list[[def_db]]),
+           annot_table = DBI::dbGetQuery(DBI::dbConnect(MonetDBLite::MonetDBLite(), 
+                                          dbs_list[[def_db]]), def_query) %>% as_tibble(),
+           samples_table = DBI::dbGetQuery(DBI::dbConnect(MonetDBLite::MonetDBLite(), 
+                           dbs_list[[def_db]]), 'SELECT * from "samples_table"') %>% as_tibble(),
+           count_table = DBI::dbGetQuery(DBI::dbConnect(MonetDBLite::MonetDBLite(), 
+                           dbs_list[[def_db]]), 'SELECT * from "Expression"') %>% as_tibble()
+            )
+  # annot_table <- reactive({
+  #   
+  #   
+  #   })
+
+                           
   # Update value after user selection
   observeEvent(c(input$update_query), {
-    values$annot_conn <- C1() # dbplyr::src_dbi(DBI::dbConnect(RSQLite::SQLite(), input$db))
-    values$annot_table <- get_annotation(C1(), input$query)
-    values$samples_table <- dplyr::tbl(C1(), "samples_table") %>% collect(n=Inf)
-                                
+    # values$annot_conn <- C1() # dbplyr::src_dbi(DBI::dbConnect(RSQLite::SQLite(), input$db))
+    values$annot_table <- DBI::dbGetQuery(C1(), input$query) %>% as_tibble()
+    values$samples_table = DBI::dbGetQuery(C1(), 'SELECT * from "samples_table"') %>% as_tibble()
+    values$count_table = DBI::dbGetQuery(C1(), 'SELECT * from "Expression"') %>% as_tibble()
+
   })
   
   
   
   # Update value
-  # observeEvent(input$plot_ExN50,{
-  #   values$show_exn50 <- TRUE
-  # })
+  observeEvent(input$plot_ExN50,{
+    values$show_exn50 <- TRUE
+  })
   
   # print db information
   
   output$db_info <- renderText({
-    db_info <- R.utils::captureOutput(print(C1()))
-    sprintf("%s\n%s", db_info[1], paste(db_info[-1], collapse = "\n"))
+    db_info <- DBI::dbListTables(monet_con) # R.utils::captureOutput(print(C1()))
+    paste(gsub('\"', "", db_info), collapse = ", ")
+    # sprintf("%s\n%s", db_info[1], paste(db_info[-1], collapse = "\n"))
   }
   )
  
@@ -467,10 +477,10 @@ server <- function(input, output, session) {
       rep_dict <- setNames(object = replicate_info$replicate_name, nm=replicate_info$replicate_id)
       # samples_table <- dplyr::tbl(values$annot_conn, "samples_table") %>% dplyr::collect() 
       incProgress(1/4, detail = "Retrieving count matrix")
-      count_table <- dplyr::tbl(values$annot_conn, "Expression") %>% 
+      count_table <- values$count_table %>% 
         dplyr::filter(feature_type==feature_selection) %>% 
         dplyr::select(TrinityID=feature_name, replicate_id, frag_count) %>% 
-        dplyr::collect(n=Inf) %>%
+        # dplyr::collect(n=Inf) %>%
         dplyr::mutate(replicate_id=rep_dict[replicate_id], frag_count=round(frag_count)) %>% 
         tidyr::spread("replicate_id", "frag_count", fill=0) %>% # include in progress bar 
         .[c("TrinityID", values$samples_table[[1]])] # order columns as the same order of samples in samples_table
@@ -561,12 +571,12 @@ server <- function(input, output, session) {
     withProgress(message = 'Calculating ExN50: ', value = 0,{
       incProgress(1/4, detail = "Retrieving transcripts")
       # retrieve transcripts
-      tx_data <- dplyr::tbl(values$annot_conn, "Transcript") %>% 
+      tx_data <- DBI::dbGetQuery(C1(), 'SELECT * from "Transcript"') %>% as_tibble() %>% 
         dplyr::select(TrinityID=transcript_id, sequence) %>%
-        dplyr::collect(n=Inf)
+        # dplyr::collect(n=Inf)
       incProgress(2/4, detail = "Retrieving expression data")
       # Retrieve Expression data
-      exp_data <-  dplyr::tbl(values$annot_conn, "Expression") %>% 
+      exp_data <-  values$count_table %>% 
         dplyr::filter(feature_type=="T") %>% 
         dplyr::group_by(feature_name) %>% dplyr::summarise(feature_count=sum(fpkm)) %>% 
         dplyr::filter(feature_count>0) %>% dplyr::collect(n=Inf) %>% 
@@ -634,44 +644,48 @@ server <- function(input, output, session) {
                         function(nq) get_number_features(values$annot_conn, queries[nq], nq ), 
                         USE.NAMES = FALSE) %>% map_dbl("Unique") 
     incProgress(2/8)
-    blast_tax_sum <- dplyr::tbl(values$annot_conn, "Blast_tax") %>% 
-      dplyr::select(TrinityId, DatabaseSource) %>% collect(n=Inf) %>% 
-      group_by(DatabaseSource) %>% summarise(Unique=n()) %>% 
+    blast_tax_sum <- DBI::dbGetQuery(C1(), 'SELECT * from "Blast_tax"') %>% as_tibble() %>% 
+      dplyr::select(TrinityId, DatabaseSource) %>% #collect(n=Inf) %>% 
+      dplyr::group_by(DatabaseSource) %>% dplyr::summarise(Unique=n()) %>% 
       mutate(Feature=paste(c( "orf", "transcript"), DatabaseSource, "annotations", sep = "_")) %>%
       dplyr::select(Feature, Unique)
     # update progress
     incProgress(3/8)
-    blastp_sum <- dplyr::tbl(values$annot_conn, "BlastDbase") %>% 
+    blastp_sum <- DBI::dbGetQuery(C1(), 'SELECT * from "BlastDbase"') %>% as_tibble %>% 
       dplyr::select(TrinityID, Feature=DatabaseSource) %>% 
-      collect(n=Inf) %>%  distinct() %>% group_by(Feature) %>% summarise(Unique=n())
+      dplyr::distinct() %>% dplyr::group_by(Feature) %>% dplyr::summarise(Unique=n())
     # update progress
     incProgress(4/8)
-    pfam_sum <- dplyr::tbl(values$annot_conn, sql("SELECT H.QueryProtID, substr(H.pfam_id,1,7) pfam_acc, G.GO_terms FROM (SELECT * FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore)) H JOIN (SELECT pfam_acc, group_concat(go_id) AS GO_terms FROM pfam2go GROUP BY pfam_acc) G ON substr(H.pfam_id,1,7)=G.pfam_acc")) %>%
-      dplyr::select(pfam_acc) %>% distinct() %>% collect() %>%
-      nrow() %>% tibble(Feature="Pfam", Unique=.)
+    pfam_sum <- NULL #DBI::dbGetQuery(C1(), sql("SELECT H.QueryProtID, substr(H.pfam_id,1,7) pfam_acc, G.GO_terms FROM (SELECT * FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore)) H JOIN (SELECT pfam_acc, group_concat(go_id) AS GO_terms FROM pfam2go GROUP BY pfam_acc) G ON substr(H.pfam_id,1,7)=G.pfam_acc")) %>%
+    #   dplyr::select(pfam_acc) %>% distinct() %>% collect() %>%
+    #   nrow() %>% tibble(Feature="Pfam", Unique=.)
     # update progress
     incProgress(5/8)
-    go_sum <- dplyr::tbl(values$annot_conn, sql("SELECT H.QueryProtID, substr(H.pfam_id,1,7) pfam_acc, G.GO_terms FROM (SELECT * FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore)) H JOIN (SELECT pfam_acc, group_concat(go_id) AS GO_terms FROM pfam2go GROUP BY pfam_acc) G ON substr(H.pfam_id,1,7)=G.pfam_acc")) %>%
-      dplyr::select(GO_terms) %>% collect() 
+    go_sum <- NULL #dplyr::tbl(values$annot_conn, sql("SELECT H.QueryProtID, substr(H.pfam_id,1,7) pfam_acc, G.GO_terms FROM (SELECT * FROM HMMERDbase WHERE FullSeqScore>20 AND FullDomainScore>20 GROUP BY QueryProtID HAVING MAX(FullSeqScore) AND MAX(FullDomainScore)) H JOIN (SELECT pfam_acc, group_concat(go_id) AS GO_terms FROM pfam2go GROUP BY pfam_acc) G ON substr(H.pfam_id,1,7)=G.pfam_acc")) %>%
+    #   dplyr::select(GO_terms) %>% collect() 
     # update progress
     incProgress(6/8)
     go_df <- tibble(Feature="GO", Unique=length(unique(unlist(go_sum$GO_terms))))
-    ko_sum <- dplyr::tbl(values$annot_conn, "ORF_KO") %>% filter(KO_ID!="None") %>% 
-      dplyr::select(Feature=KO_ID) %>% collect() %>% distinct() %>%
-      nrow() %>% tibble(Feature="KEGG", Unique=.)
+    
+    ko_sum <- DBI::dbGetQuery(C1(), 'SELECT * from "ORF_KO"') %>% dplyr::as_tibble %>% 
+      dplyr::filter(KO_ID!="None") %>% 
+      dplyr::select(Feature=KO_ID) %>%  dplyr::distinct() %>%
+      nrow() %>% dplyr::tibble(Feature="KEGG", Unique=.)
     incProgress(3/8)
-    signalP_sum <- dplyr::tbl(values$annot_conn, "SignalP") %>% filter(prediction=="YES") %>% 
-      dplyr::select(Feature=query_prot_id) %>% collect() %>% distinct() %>%
-      nrow() %>% tibble(Feature="SignalP", Unique=.)
+    signalP_sum <- DBI::dbGetQuery(C1(), 'SELECT * from "SignalP"') %>% dplyr::as_tibble %>% 
+      dplyr::filter(prediction=="YES") %>% 
+      dplyr::select(Feature=query_prot_id) %>% dplyr::distinct() %>%
+      nrow() %>% dplyr::tibble(Feature="SignalP", Unique=.)
     # update progress
-    incProgress(7/8)
-    tmhmm_sum <- dplyr::tbl(values$annot_conn, "tmhmm") %>% filter(PredHel=="PredHel=1") %>% 
-      dplyr::select(Feature=queryprotid) %>% collect() %>% distinct() %>%
-      nrow() %>% tibble(Feature="TmHMM", Unique=.)
+    incProgress(7/8) 
+    tmhmm_sum <- DBI::dbGetQuery(C1(), 'SELECT * from "tmhmm"') %>% dplyr::as_tibble %>% 
+      dplyr::filter(PredHel=="PredHel=1") %>% 
+      dplyr::select(Feature=queryprotid) %>% #collect() %>% dplyr::distinct() %>%
+      dplyr::distinct() %>% nrow() %>% dplyr::tibble(Feature="TmHMM", Unique=.)
     })
     # Summarise all together
-    tibble(Feature=names(sum_annot), Unique=sum_annot) %>% 
-      bind_rows(blast_tax_sum,blastp_sum, pfam_sum,                                                             go_df, ko_sum, signalP_sum, tmhmm_sum) }, 
+    dplyr::tibble(Feature=names(sum_annot), Unique=sum_annot) %>% 
+      dplyr::bind_rows(blast_tax_sum,blastp_sum, pfam_sum,                                                             go_df, ko_sum, signalP_sum, tmhmm_sum) }, 
     rownames= FALSE, server = FALSE, 
     extensions = c("Buttons", "Scroller"), # ,'FixedColumns',"FixedHeader"
     options = list(
@@ -737,12 +751,13 @@ server <- function(input, output, session) {
       tx_ids <- unique(sub("\\|m\\..+", "", ids))
       cds_ids <- ids[grepl("\\|m\\..+", ids)]
       # extract transcript sequences
-      tx <- dplyr::tbl(values$annot_conn, "Transcript") %>% 
+      tx <- DBI::dbGetQuery(C1(), 'SELECT * from "Transcript"') %>% as_tibble() %>% 
         dplyr::filter(transcript_id %in% tx_ids) %>% 
-        dplyr::select(transcript_id, sequence) %>% dplyr::collect(n=Inf)
+        dplyr::select(transcript_id, sequence)# %>% dplyr::collect(n=Inf)
       # extract just the coding sequences (reverse complement if on the minus strand)
-      cds <- dplyr::tbl(values$annot_conn, "ORF") %>% dplyr::filter(orf_id %in% cds_ids) %>%  
-        dplyr::collect(n=Inf) %>% 
+      cds <- DBI::dbGetQuery(C1(), 'SELECT * from "ORF"') %>% dplyr::as_tibble() %>% 
+        dplyr::filter(orf_id %in% cds_ids) %>%  
+        # dplyr::collect(n=Inf) %>% 
         dplyr::mutate(cds=substr(tx$sequence[match(transcript_id, tx$transcript_id)], 
                                  lend, rend), 
                       cds_2=ifelse(strand=="+", cds, chartr("ATGC","TACG",reverse(cds)))) %>% 
