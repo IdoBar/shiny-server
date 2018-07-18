@@ -14,7 +14,11 @@ devtools::source_gist('7f63547158ecdbacf31b54a58af0d1cc', filename = 'util.R')
 CRAN_packages <- c("shiny", "dplyr", "purrr", "sqldf", "dbplyr", "DT", "RSQLite",
                    "shinydashboard", "shinyWidgets", "Biostrings", "R.utils", 
                    "ggplot2", "plotly", "Cairo", "DESeq2") # tidyverse
+<<<<<<< HEAD
 pacman::p_load(char=CRAN_packages, install = FALSE)
+=======
+pacman::p_load(char=CRAN_packages)
+>>>>>>> 0390b5b72aeb1e88bb81a61ed0ad5ce413f43466
 
 
 # Find all available files
